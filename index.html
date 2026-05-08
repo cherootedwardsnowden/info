@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>vision-ai | nesne tespit ve sahne analizi</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="bg-grid"></div>
+  <div class="bg-glow"></div>
+  <canvas id="particles" class="bg-particles"></canvas>
+
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 32 32" width="28" height="28">
+          <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/>
+          <circle cx="16" cy="16" r="5" fill="currentColor"/>
+          <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1>vision-ai</h1>
+        <p>nesne tespit ve sahne analizi</p>
+      </div>
+    </div>
+    <div class="status" id="status">
+      <span class="dot"></span>
+      <span id="statusText">model yukleniyor...</span>
+    </div>
+  </header>
+
+  <main class="container">
+    <!-- yukleme karti -->
+    <section class="card upload-card" id="uploadCard">
+      <div class="upload-area" id="dropZone">
+        <div class="upload-illustration">
+          <div class="ring r1"></div>
+          <div class="ring r2"></div>
+          <div class="ring r3"></div>
+          <div class="upload-icon">
+            <svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M24 32 V12 M16 20 L24 12 L32 20" stroke-linecap="round" stroke-linejoin="round"/>
+              <path d="M8 32 V36 A4 4 0 0 0 12 40 H36 A4 4 0 0 0 40 36 V32" stroke-linecap="round"/>
+            </svg>
+          </div>
+        </div>
+        <h2>resim, gif veya video yukle</h2>
+        <p class="muted">tikla, surukle birak veya panodan yapistir (ctrl+v)</p>
+        <input type="file" id="fileInput" accept="image/*,video/*,.gif" hidden>
+        <button class="btn-primary" id="pickBtn">
+          <span>dosya sec</span>
+          <span class="btn-shine"></span>
+        </button>
+        <p class="muted small">desteklenen: jpg, png, webp, gif, mp4, webm, mov &middot; maks 100mb</p>
+      </div>
+      <div class="features">
+        <div class="feat">
+          <div class="feat-ic">o</div>
+          <span>nesne tespit (80+ sinif)</span>
+        </div>
+        <div class="feat">
+          <div class="feat-ic">s</div>
+          <span>sahne siniflandirma</span>
+        </div>
+        <div class="feat">
+          <div class="feat-ic">v</div>
+          <span>vucut iskelet noktalari</span>
+        </div>
+        <div class="feat">
+          <div class="feat-ic">k</div>
+          <span>video/gif kare analizi</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- analiz animasyonu -->
+    <section class="card analyzing-card" id="analyzingCard" hidden>
+      <div class="scanner-wrap">
+        <div class="scanner">
+          <img id="scanImg" alt="">
+          <div class="scan-line"></div>
+          <div class="scan-corner tl"></div>
+          <div class="scan-corner tr"></div>
+          <div class="scan-corner bl"></div>
+          <div class="scan-corner br"></div>
+          <div class="scan-mesh"></div>
+          <div class="scan-grid"></div>
+          <canvas id="scanOverlay" class="scan-overlay"></canvas>
+        </div>
+        <div class="scan-hud">
+          <div class="hud-row"><span>durum</span><span id="hudStatus" class="hud-val">bagliyor</span></div>
+          <div class="hud-row"><span>asama</span><span id="hudStage" class="hud-val">--</span></div>
+          <div class="hud-row"><span>sure</span><span id="hudTime" class="hud-val">0.0s</span></div>
+        </div>
+      </div>
+      <div class="analyze-info">
+        <h2 class="glitch" data-text="ANALIZ EDILIYOR">ANALIZ EDILIYOR</h2>
+        <p class="muted">derin ogrenme modelleri goruntuyu tariyor</p>
+        <ul class="steps" id="steps">
+          <li data-step="upload"><span class="dot"></span>dosya yuklendi</li>
+          <li data-step="frames"><span class="dot"></span>kareler cikariliyor</li>
+          <li data-step="detect"><span class="dot"></span>nesneler tespit ediliyor</li>
+          <li data-step="classify"><span class="dot"></span>sahne siniflandiriliyor</li>
+          <li data-step="pose"><span class="dot"></span>vucut analizi yapiliyor</li>
+          <li data-step="describe"><span class="dot"></span>ortam yazimi olusturuluyor</li>
+        </ul>
+        <div class="progress">
+          <div class="progress-bar" id="progressBar"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- sonuc karti -->
+    <section class="card result-card" id="resultCard" hidden>
+      <div class="result-header">
+        <div>
+          <h2>analiz sonuclari</h2>
+          <p class="muted small" id="resultMeta"></p>
+        </div>
+        <button class="btn-ghost" id="newBtn">+ yeni analiz</button>
+      </div>
+
+      <div class="result-body">
+        <div class="result-main">
+          <div class="canvas-container" id="canvasContainer">
+            <img id="resultImg" class="result-media" alt="">
+            <canvas id="overlay"></canvas>
+            <div class="frame-controls" id="frameControls" hidden>
+              <button class="ctrl-btn" id="prevFrame" title="onceki kare">‹</button>
+              <span id="frameLabel" class="frame-label">kare 1/1</span>
+              <button class="ctrl-btn" id="nextFrame" title="sonraki kare">›</button>
+              <button class="ctrl-btn play" id="playFrames" title="otomatik oynat">▶</button>
+            </div>
+            <div class="legend">
+              <span class="legend-item"><span class="lg-box obj"></span>nesne</span>
+              <span class="legend-item"><span class="lg-box pose"></span>vucut</span>
+            </div>
+          </div>
+          <div class="description-box">
+            <div class="desc-head">
+              <span class="desc-icon">i</span>
+              <h3>ortam yazimi</h3>
+            </div>
+            <p id="description"></p>
+          </div>
+        </div>
+
+        <aside class="sidebar">
+          <div class="stats" id="statsBox"></div>
+          <h3 class="side-title">tespit edilen nesneler</h3>
+          <div class="objects-list" id="objectsList"></div>
+          <h3 class="side-title">sahne etiketleri</h3>
+          <div class="scenes-list" id="scenesList"></div>
+        </aside>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>vision-ai &middot; tensorflow.js &middot; coco-ssd + mobilenet + movenet</span>
+    </footer>
+  </main>
+
+  <script src="client.js"></script>
+</body>
+</html>

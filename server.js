@@ -1,0 +1,349 @@
+// vision-ai backend
+// nesne tespit + sahne siniflandirma + vucut keypointleri
+// resim, gif ve video destekler
+
+const express = require('express');
+const multer = require('multer');
+const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+const crypto = require('crypto');
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+
+ffmpeg.setFfmpegPath(ffmpegPath);
+
+// modeller startup'ta yuklenir
+const models = { coco: null, mobilenet: null, pose: null, ready: false };
+let tf, cocoSsd, mobilenetLib, poseDetection;
+
+async function loadModels() {
+  console.log('[init] tensorflow-node baslatiliyor...');
+  tf = require('@tensorflow/tfjs-node');
+  cocoSsd = require('@tensorflow-models/coco-ssd');
+  mobilenetLib = require('@tensorflow-models/mobilenet');
+  poseDetection = require('@tensorflow-models/pose-detection');
+
+  console.log('[init] coco-ssd model yukleniyor...');
+  models.coco = await cocoSsd.load({ base: 'mobilenet_v2' });
+
+  console.log('[init] mobilenet model yukleniyor...');
+  models.mobilenet = await mobilenetLib.load({ version: 2, alpha: 1.0 });
+
+  console.log('[init] pose detection model yukleniyor...');
+  models.pose = await poseDetection.createDetector(
+    poseDetection.SupportedModels.MoveNet,
+    { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
+  );
+
+  models.ready = true;
+  console.log('[init] tum modeller hazir');
+}
+
+// turkce nesne sozlugu
+const TR = {
+  person: 'kisi', bicycle: 'bisiklet', car: 'araba', motorcycle: 'motosiklet',
+  airplane: 'ucak', bus: 'otobus', train: 'tren', truck: 'kamyon',
+  boat: 'tekne', 'traffic light': 'trafik isigi', 'fire hydrant': 'yangin muslugu',
+  'stop sign': 'dur tabelasi', 'parking meter': 'parkmetre', bench: 'bank',
+  bird: 'kus', cat: 'kedi', dog: 'kopek', horse: 'at', sheep: 'koyun',
+  cow: 'inek', elephant: 'fil', bear: 'ayi', zebra: 'zebra', giraffe: 'zurafa',
+  backpack: 'sirt cantasi', umbrella: 'semsiye', handbag: 'el cantasi',
+  tie: 'kravat', suitcase: 'bavul', frisbee: 'frizbi', skis: 'kayak',
+  snowboard: 'snowboard', 'sports ball': 'top', kite: 'ucurtma',
+  'baseball bat': 'beyzbol sopasi', 'baseball glove': 'beyzbol eldiveni',
+  skateboard: 'kaykay', surfboard: 'surf tahtasi', 'tennis racket': 'tenis raketi',
+  bottle: 'sise', 'wine glass': 'sarap kadehi', cup: 'fincan',
+  fork: 'catal', knife: 'bicak', spoon: 'kasik', bowl: 'kase',
+  banana: 'muz', apple: 'elma', sandwich: 'sandvic', orange: 'portakal',
+  broccoli: 'brokoli', carrot: 'havuc', 'hot dog': 'sosis',
+  pizza: 'pizza', donut: 'donut', cake: 'pasta', chair: 'sandalye',
+  couch: 'koltuk', 'potted plant': 'saksi bitkisi', bed: 'yatak',
+  'dining table': 'yemek masasi', toilet: 'tuvalet', tv: 'televizyon',
+  laptop: 'dizustu bilgisayar', mouse: 'fare', remote: 'kumanda',
+  keyboard: 'klavye', 'cell phone': 'cep telefonu', microwave: 'mikrodalga',
+  oven: 'firin', toaster: 'tost makinesi', sink: 'lavabo',
+  refrigerator: 'buzdolabi', book: 'kitap', clock: 'saat', vase: 'vazo',
+  scissors: 'makas', 'teddy bear': 'oyuncak ayi', 'hair drier': 'sac kurutma',
+  toothbrush: 'dis fircasi'
+};
+
+// vucut keypoint isimleri turkce
+const KP_TR = {
+  nose: 'burun', left_eye: 'sol goz', right_eye: 'sag goz',
+  left_ear: 'sol kulak', right_ear: 'sag kulak',
+  left_shoulder: 'sol omuz', right_shoulder: 'sag omuz',
+  left_elbow: 'sol dirsek', right_elbow: 'sag dirsek',
+  left_wrist: 'sol bilek', right_wrist: 'sag bilek',
+  left_hip: 'sol kalca', right_hip: 'sag kalca',
+  left_knee: 'sol diz', right_knee: 'sag diz',
+  left_ankle: 'sol ayak', right_ankle: 'sag ayak'
+};
+
+function trName(en) {
+  return TR[en] || en;
+}
+
+// upload klasoru tmp altinda
+const upload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 100 * 1024 * 1024 } // 100mb
+});
+
+const app = express();
+app.use(cors());
+app.use(express.json({ limit: '10mb' }));
+app.use(express.static(__dirname));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+app.get('/api/health', (req, res) => {
+  res.json({ ok: true, ready: models.ready });
+});
+
+// videodan/giften kareler cikar
+async function extractFrames(inputPath, count = 6) {
+  const outDir = path.join(os.tmpdir(), 'va-' + crypto.randomBytes(6).toString('hex'));
+  fs.mkdirSync(outDir, { recursive: true });
+
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .on('error', err => {
+        console.error('[ffmpeg] hata:', err.message);
+        reject(err);
+      })
+      .on('end', () => {
+        const list = fs.readdirSync(outDir)
+          .filter(f => /\.(png|jpg|jpeg)$/i.test(f))
+          .sort()
+          .map(f => path.join(outDir, f));
+        resolve({ frames: list, dir: outDir });
+      })
+      .screenshots({
+        count,
+        folder: outDir,
+        filename: 'frame-%03i.png',
+        size: '720x?'
+      });
+  });
+}
+
+// tek bir kareyi/resmi analiz et
+async function analyzeImage(buffer) {
+  let tensor;
+  try {
+    tensor = tf.node.decodeImage(buffer, 3, undefined, false);
+    if (tensor.shape.length === 4) {
+      const sq = tensor.squeeze([0]);
+      tensor.dispose();
+      tensor = sq;
+    }
+    const [h, w] = tensor.shape;
+
+    // coco-ssd: bounding boxlu nesne tespiti
+    const cocoRaw = await models.coco.detect(tensor, 30, 0.3);
+
+    // mobilenet: genel sahne siniflandirma
+    const sceneRaw = await models.mobilenet.classify(tensor, 5);
+
+    // movenet: vucut keypointleri (kisi varsa)
+    let posesRaw = [];
+    try {
+      posesRaw = await models.pose.estimatePoses(tensor, { maxPoses: 1 });
+    } catch (e) {
+      posesRaw = [];
+    }
+
+    return {
+      width: w,
+      height: h,
+      objects: cocoRaw.map(c => ({
+        label: c.class,
+        labelTr: trName(c.class),
+        score: Number(c.score.toFixed(3)),
+        bbox: c.bbox.map(n => Math.round(n))
+      })),
+      scene: sceneRaw.map(s => ({
+        label: s.className,
+        score: Number(s.probability.toFixed(3))
+      })),
+      poses: posesRaw.map(p => ({
+        score: Number((p.score || 0).toFixed(3)),
+        keypoints: (p.keypoints || []).map(k => ({
+          name: k.name,
+          nameTr: KP_TR[k.name] || k.name,
+          x: Math.round(k.x),
+          y: Math.round(k.y),
+          score: Number((k.score || 0).toFixed(3))
+        }))
+      }))
+    };
+  } finally {
+    if (tensor) {
+      try { tensor.dispose(); } catch (e) {}
+    }
+  }
+}
+
+// ortam aciklamasi uret
+function describeScene(allObjects, allScenesPerFrame, hasPose) {
+  const counts = {};
+  for (const obj of allObjects) {
+    if (obj.score < 0.4) continue;
+    counts[obj.labelTr] = (counts[obj.labelTr] || 0) + 1;
+  }
+
+  // her kare icindeki maks sayiyi al (ayni nesne tekrar sayilmasin)
+  const maxCounts = {};
+  for (const frameObjs of allScenesPerFrame.framesObjs || []) {
+    const fc = {};
+    for (const o of frameObjs) {
+      if (o.score < 0.4) continue;
+      fc[o.labelTr] = (fc[o.labelTr] || 0) + 1;
+    }
+    for (const [k, v] of Object.entries(fc)) {
+      maxCounts[k] = Math.max(maxCounts[k] || 0, v);
+    }
+  }
+
+  const items = Object.entries(maxCounts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 12)
+    .map(([name, n]) => n > 1 ? `${n} adet ${name}` : `bir ${name}`);
+
+  const sceneVotes = {};
+  for (const sceneList of allScenesPerFrame.framesScenes || []) {
+    for (const s of (sceneList || []).slice(0, 2)) {
+      const key = s.label.split(',')[0].trim().toLowerCase();
+      sceneVotes[key] = (sceneVotes[key] || 0) + s.score;
+    }
+  }
+  const topScenes = Object.entries(sceneVotes)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 3)
+    .map(([k]) => k);
+
+  let desc = '';
+  if (items.length > 0) {
+    desc += 'goruntude ' + items.join(', ') + ' tespit edildi. ';
+  } else {
+    desc += 'tanimli buyuk nesne tespit edilmedi. ';
+  }
+  if (topScenes.length > 0) {
+    desc += 'genel ortam izlenimi: ' + topScenes.join(' / ') + '. ';
+  }
+  if (hasPose) {
+    desc += 'goruntude insan figuru tespit edildi ve vucut iskelet noktalari isaretlendi.';
+  }
+  return desc.trim();
+}
+
+// ana analiz endpointi
+app.post('/api/analyze', upload.single('media'), async (req, res) => {
+  if (!models.ready) {
+    return res.status(503).json({ error: 'modeller henuz yuklenmedi, biraz bekleyin' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'dosya yuklenmedi' });
+  }
+
+  const filePath = req.file.path;
+  const mime = req.file.mimetype || '';
+  const isVideo = mime.startsWith('video/');
+  const isGif = mime === 'image/gif';
+  const isImage = mime.startsWith('image/') && !isGif;
+
+  const cleanups = [filePath];
+
+  try {
+    let frameResults = [];
+
+    if (isImage) {
+      console.log('[analyze] resim:', req.file.originalname, mime);
+      const buf = fs.readFileSync(filePath);
+      const analysis = await analyzeImage(buf);
+      const dataUrl = 'data:' + mime + ';base64,' + buf.toString('base64');
+      frameResults.push({
+        frameIndex: 0,
+        frameImage: dataUrl,
+        ...analysis
+      });
+    } else if (isVideo || isGif) {
+      console.log('[analyze]', isGif ? 'gif:' : 'video:', req.file.originalname, mime);
+      const { frames, dir } = await extractFrames(filePath, 8);
+      cleanups.push(dir);
+
+      if (frames.length === 0) {
+        return res.status(400).json({ error: 'video/giften kare cikarilamadi' });
+      }
+
+      for (let i = 0; i < frames.length; i++) {
+        const buf = fs.readFileSync(frames[i]);
+        const analysis = await analyzeImage(buf);
+        const dataUrl = 'data:image/png;base64,' + buf.toString('base64');
+        frameResults.push({
+          frameIndex: i,
+          frameImage: dataUrl,
+          ...analysis
+        });
+      }
+    } else {
+      return res.status(400).json({ error: 'desteklenmeyen format: ' + mime });
+    }
+
+    const allObjects = frameResults.flatMap(f => f.objects);
+    const framesObjs = frameResults.map(f => f.objects);
+    const framesScenes = frameResults.map(f => f.scene);
+    const hasPose = frameResults.some(f =>
+      f.poses.length > 0 && f.poses[0].keypoints.some(k => k.score > 0.4)
+    );
+    const description = describeScene(allObjects, { framesObjs, framesScenes }, hasPose);
+
+    const uniqueLabels = new Set(allObjects.filter(o => o.score >= 0.4).map(o => o.labelTr));
+
+    res.json({
+      mediaType: isImage ? 'image' : (isGif ? 'gif' : 'video'),
+      mime,
+      frames: frameResults,
+      description,
+      stats: {
+        frameCount: frameResults.length,
+        totalDetections: allObjects.filter(o => o.score >= 0.4).length,
+        uniqueClasses: uniqueLabels.size,
+        hasPerson: hasPose,
+        topClasses: Array.from(uniqueLabels).slice(0, 20)
+      }
+    });
+  } catch (err) {
+    console.error('[analyze] hata:', err);
+    res.status(500).json({ error: err.message || 'analiz hatasi' });
+  } finally {
+    for (const p of cleanups) {
+      try {
+        const st = fs.statSync(p);
+        if (st.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+        else fs.unlinkSync(p);
+      } catch (e) {}
+    }
+  }
+});
+
+const PORT = process.env.PORT || 3000;
+
+loadModels()
+  .then(() => {
+    app.listen(PORT, '0.0.0.0', () => {
+      console.log('[server] dinleniyor: http://0.0.0.0:' + PORT);
+    });
+  })
+  .catch(err => {
+    console.error('[fatal] model yuklenemedi:', err);
+    process.exit(1);
+  });
+
+process.on('unhandledRejection', err => {
+  console.error('[unhandledRejection]', err);
+});

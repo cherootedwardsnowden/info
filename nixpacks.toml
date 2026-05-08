@@ -1,0 +1,9 @@
+# tfjs-node native build icin gerekli sistem paketleri
+[phases.setup]
+nixPkgs = ["nodejs_20", "python3", "gcc", "gnumake", "stdenv.cc.cc.lib"]
+
+[phases.install]
+cmds = ["npm install --include=dev --build-from-source=false"]
+
+[start]
+cmd = "node server.js"
