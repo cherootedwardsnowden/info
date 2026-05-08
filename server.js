@@ -9,10 +9,56 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
+const { execSync } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
 const ffmpegPath = require('ffmpeg-static');
 
 ffmpeg.setFfmpegPath(ffmpegPath);
+
+// ffprobe kurulum kontrolu (yoksa otomatik kurar)
+let ffprobeReady = false;
+
+function tryRequireFfprobe() {
+  // require cache'i temizle ki yeni kurulan paket gorulebilsin
+  Object.keys(require.cache).forEach(k => {
+    if (k.indexOf('ffprobe-installer') !== -1) delete require.cache[k];
+  });
+  const mod = require('@ffprobe-installer/ffprobe');
+  if (!mod || !mod.path) throw new Error('ffprobe path bulunamadi');
+  if (!fs.existsSync(mod.path)) throw new Error('ffprobe binary yok: ' + mod.path);
+  return mod.path;
+}
+
+function ensureFfprobe() {
+  // 1) once mevcut kurulumu dene
+  try {
+    const p = tryRequireFfprobe();
+    ffmpeg.setFfprobePath(p);
+    console.log('[init] ffprobe hazir:', p);
+    ffprobeReady = true;
+    return;
+  } catch (e) {
+    console.log('[init] ffprobe paketi yok veya bozuk, kuruluyor...');
+  }
+
+  // 2) otomatik kurulum
+  try {
+    execSync('npm install @ffprobe-installer/ffprobe --no-save --no-audit --no-fund', {
+      cwd: __dirname,
+      stdio: 'inherit',
+      timeout: 180000
+    });
+    const p = tryRequireFfprobe();
+    ffmpeg.setFfprobePath(p);
+    console.log('[init] ffprobe kuruldu:', p);
+    ffprobeReady = true;
+  } catch (err) {
+    console.warn('[init] ffprobe kurulamadi, fallback frame extractor kullanilacak:', err.message);
+    ffprobeReady = false;
+  }
+}
+
+ensureFfprobe();
 
 // modeller startup'ta yuklenir
 const models = { coco: null, mobilenet: null, pose: null, ready: false };
@@ -109,25 +155,45 @@ async function extractFrames(inputPath, count = 6) {
   const outDir = path.join(os.tmpdir(), 'va-' + crypto.randomBytes(6).toString('hex'));
   fs.mkdirSync(outDir, { recursive: true });
 
+  const collect = () => fs.readdirSync(outDir)
+    .filter(f => /\.(png|jpg|jpeg)$/i.test(f))
+    .sort()
+    .map(f => path.join(outDir, f));
+
+  // 1) ffprobe varsa: net dagitilmis kareler (screenshots metodu)
+  if (ffprobeReady) {
+    return new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .on('error', err => {
+          console.error('[ffmpeg] screenshots hatasi:', err.message);
+          reject(err);
+        })
+        .on('end', () => resolve({ frames: collect(), dir: outDir }))
+        .screenshots({
+          count,
+          folder: outDir,
+          filename: 'frame-%03i.png',
+          size: '720x?'
+        });
+    });
+  }
+
+  // 2) ffprobe yoksa fallback: select filter ile esit araliklarla kare al
   return new Promise((resolve, reject) => {
     ffmpeg(inputPath)
+      .outputOptions([
+        '-vf', "select='not(mod(n\\," + Math.max(1, Math.floor(15)) + "))',scale=720:-1",
+        '-vsync', 'vfr',
+        '-frames:v', String(count),
+        '-q:v', '2'
+      ])
+      .output(path.join(outDir, 'frame-%03d.png'))
       .on('error', err => {
-        console.error('[ffmpeg] hata:', err.message);
+        console.error('[ffmpeg] fallback hatasi:', err.message);
         reject(err);
       })
-      .on('end', () => {
-        const list = fs.readdirSync(outDir)
-          .filter(f => /\.(png|jpg|jpeg)$/i.test(f))
-          .sort()
-          .map(f => path.join(outDir, f));
-        resolve({ frames: list, dir: outDir });
-      })
-      .screenshots({
-        count,
-        folder: outDir,
-        filename: 'frame-%03i.png',
-        size: '720x?'
-      });
+      .on('end', () => resolve({ frames: collect(), dir: outDir }))
+      .run();
   });
 }
 
