@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>vision-ai | nesne tespit ve sahne analizi</title>
+  <title>vision-ai | nesne tespit ve nsfw analiz</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -11,156 +11,314 @@
   <div class="bg-glow"></div>
   <canvas id="particles" class="bg-particles"></canvas>
 
-  <header class="topbar">
-    <div class="brand">
-      <div class="brand-mark">
-        <svg viewBox="0 0 32 32" width="28" height="28">
-          <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/>
-          <circle cx="16" cy="16" r="5" fill="currentColor"/>
-          <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="1" opacity="0.5"/>
-        </svg>
+  <div class="layout">
+    <!-- sol sidebar -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">
+          <svg viewBox="0 0 32 32" width="28" height="28">
+            <circle cx="16" cy="16" r="13" fill="none" stroke="currentColor" stroke-width="2"/>
+            <circle cx="16" cy="16" r="5" fill="currentColor"/>
+            <circle cx="16" cy="16" r="9" fill="none" stroke="currentColor" stroke-width="1" opacity="0.5"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>vision-ai</h1>
+          <p>derin tespit motoru</p>
+        </div>
       </div>
-      <div class="brand-text">
-        <h1>vision-ai</h1>
-        <p>nesne tespit ve sahne analizi</p>
-      </div>
-    </div>
-    <div class="status" id="status">
-      <span class="dot"></span>
-      <span id="statusText">model yukleniyor...</span>
-    </div>
-  </header>
 
-  <main class="container">
-    <!-- yukleme karti -->
-    <section class="card upload-card" id="uploadCard">
-      <div class="upload-area" id="dropZone">
-        <div class="upload-illustration">
-          <div class="ring r1"></div>
-          <div class="ring r2"></div>
-          <div class="ring r3"></div>
-          <div class="upload-icon">
-            <svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2.5">
-              <path d="M24 32 V12 M16 20 L24 12 L32 20" stroke-linecap="round" stroke-linejoin="round"/>
-              <path d="M8 32 V36 A4 4 0 0 0 12 40 H36 A4 4 0 0 0 40 36 V32" stroke-linecap="round"/>
+      <nav class="side-nav">
+        <p class="side-section">moduller</p>
+        <button class="nav-item active" data-view="objects">
+          <span class="nav-ic">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="3" width="7" height="7" rx="1"/>
+              <rect x="14" y="3" width="7" height="7" rx="1"/>
+              <rect x="3" y="14" width="7" height="7" rx="1"/>
+              <circle cx="17.5" cy="17.5" r="3.5"/>
+              <path d="M20 20 L23 23"/>
             </svg>
-          </div>
-        </div>
-        <h2>resim, gif veya video yukle</h2>
-        <p class="muted">tikla, surukle birak veya panodan yapistir (ctrl+v)</p>
-        <input type="file" id="fileInput" accept="image/*,video/*,.gif" hidden>
-        <button class="btn-primary" id="pickBtn">
-          <span>dosya sec</span>
-          <span class="btn-shine"></span>
+          </span>
+          <span class="nav-text">
+            <span class="nav-title">nesne tespit</span>
+            <span class="nav-sub">sahne + iskelet</span>
+          </span>
+          <span class="nav-arrow">›</span>
         </button>
-        <p class="muted small">desteklenen: jpg, png, webp, gif, mp4, webm, mov &middot; maks 100mb</p>
-      </div>
-      <div class="features">
-        <div class="feat">
-          <div class="feat-ic">o</div>
-          <span>nesne tespit (80+ sinif)</span>
-        </div>
-        <div class="feat">
-          <div class="feat-ic">s</div>
-          <span>sahne siniflandirma</span>
-        </div>
-        <div class="feat">
-          <div class="feat-ic">v</div>
-          <span>vucut iskelet noktalari</span>
-        </div>
-        <div class="feat">
-          <div class="feat-ic">k</div>
-          <span>video/gif kare analizi</span>
-        </div>
-      </div>
-    </section>
+        <button class="nav-item" data-view="nsfw">
+          <span class="nav-ic">
+            <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M12 2 L4 6 V12 C4 16.5 7.5 20.5 12 22 C16.5 20.5 20 16.5 20 12 V6 Z"/>
+              <path d="M9 12 L11 14 L15 10"/>
+            </svg>
+          </span>
+          <span class="nav-text">
+            <span class="nav-title">nsfw tespit</span>
+            <span class="nav-sub">icerik denetimi</span>
+          </span>
+          <span class="nav-arrow">›</span>
+        </button>
+      </nav>
 
-    <!-- analiz animasyonu -->
-    <section class="card analyzing-card" id="analyzingCard" hidden>
-      <div class="scanner-wrap">
-        <div class="scanner">
-          <img id="scanImg" alt="">
-          <div class="scan-line"></div>
-          <div class="scan-corner tl"></div>
-          <div class="scan-corner tr"></div>
-          <div class="scan-corner bl"></div>
-          <div class="scan-corner br"></div>
-          <div class="scan-mesh"></div>
-          <div class="scan-grid"></div>
-          <canvas id="scanOverlay" class="scan-overlay"></canvas>
-        </div>
-        <div class="scan-hud">
-          <div class="hud-row"><span>durum</span><span id="hudStatus" class="hud-val">bagliyor</span></div>
-          <div class="hud-row"><span>asama</span><span id="hudStage" class="hud-val">--</span></div>
-          <div class="hud-row"><span>sure</span><span id="hudTime" class="hud-val">0.0s</span></div>
-        </div>
-      </div>
-      <div class="analyze-info">
-        <h2 class="glitch" data-text="ANALIZ EDILIYOR">ANALIZ EDILIYOR</h2>
-        <p class="muted">derin ogrenme modelleri goruntuyu tariyor</p>
-        <ul class="steps" id="steps">
-          <li data-step="upload"><span class="dot"></span>dosya yuklendi</li>
-          <li data-step="frames"><span class="dot"></span>kareler cikariliyor</li>
-          <li data-step="detect"><span class="dot"></span>nesneler tespit ediliyor</li>
-          <li data-step="classify"><span class="dot"></span>sahne siniflandiriliyor</li>
-          <li data-step="pose"><span class="dot"></span>vucut analizi yapiliyor</li>
-          <li data-step="describe"><span class="dot"></span>ortam yazimi olusturuluyor</li>
-        </ul>
-        <div class="progress">
-          <div class="progress-bar" id="progressBar"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- sonuc karti -->
-    <section class="card result-card" id="resultCard" hidden>
-      <div class="result-header">
-        <div>
-          <h2>analiz sonuclari</h2>
-          <p class="muted small" id="resultMeta"></p>
-        </div>
-        <button class="btn-ghost" id="newBtn">+ yeni analiz</button>
-      </div>
-
-      <div class="result-body">
-        <div class="result-main">
-          <div class="canvas-container" id="canvasContainer">
-            <img id="resultImg" class="result-media" alt="">
-            <canvas id="overlay"></canvas>
-            <div class="frame-controls" id="frameControls" hidden>
-              <button class="ctrl-btn" id="prevFrame" title="onceki kare">‹</button>
-              <span id="frameLabel" class="frame-label">kare 1/1</span>
-              <button class="ctrl-btn" id="nextFrame" title="sonraki kare">›</button>
-              <button class="ctrl-btn play" id="playFrames" title="otomatik oynat">▶</button>
-            </div>
-            <div class="legend">
-              <span class="legend-item"><span class="lg-box obj"></span>nesne</span>
-              <span class="legend-item"><span class="lg-box pose"></span>vucut</span>
-            </div>
+      <div class="side-foot">
+        <div class="status" id="status">
+          <span class="dot"></span>
+          <div>
+            <div class="status-label">model durumu</div>
+            <div id="statusText" class="status-val">yukleniyor...</div>
           </div>
-          <div class="description-box">
-            <div class="desc-head">
-              <span class="desc-icon">i</span>
-              <h3>ortam yazimi</h3>
-            </div>
-            <p id="description"></p>
+        </div>
+        <div class="model-list" id="modelList"></div>
+        <p class="muted small">tfjs &middot; coco-ssd &middot; mobilenet &middot; movenet &middot; nsfwjs</p>
+      </div>
+    </aside>
+
+    <!-- ana icerik -->
+    <main class="content">
+      <!-- shared analyzing card -->
+      <section class="card analyzing-card" id="analyzingCard" hidden>
+        <div class="scanner-wrap">
+          <div class="scanner">
+            <img id="scanImg" alt="">
+            <div class="scan-line"></div>
+            <div class="scan-corner tl"></div>
+            <div class="scan-corner tr"></div>
+            <div class="scan-corner bl"></div>
+            <div class="scan-corner br"></div>
+            <div class="scan-mesh"></div>
+            <div class="scan-grid"></div>
+            <canvas id="scanOverlay" class="scan-overlay"></canvas>
+          </div>
+          <div class="scan-hud">
+            <div class="hud-row"><span>durum</span><span id="hudStatus" class="hud-val">bagliyor</span></div>
+            <div class="hud-row"><span>asama</span><span id="hudStage" class="hud-val">--</span></div>
+            <div class="hud-row"><span>sure</span><span id="hudTime" class="hud-val">0.0s</span></div>
+          </div>
+        </div>
+        <div class="analyze-info">
+          <h2 class="glitch" data-text="ANALIZ EDILIYOR">ANALIZ EDILIYOR</h2>
+          <p class="muted">derin ogrenme modelleri goruntuyu tariyor</p>
+          <ul class="steps" id="steps">
+            <li data-step="upload"><span class="dot"></span>dosya yuklendi</li>
+            <li data-step="frames"><span class="dot"></span>kareler cikariliyor</li>
+            <li data-step="detect"><span class="dot"></span>nesneler tespit ediliyor</li>
+            <li data-step="classify"><span class="dot"></span>siniflandirma yapiliyor</li>
+            <li data-step="pose"><span class="dot"></span>vucut/icerik analizi</li>
+            <li data-step="describe"><span class="dot"></span>karar olusturuluyor</li>
+          </ul>
+          <div class="progress">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- objects view -->
+      <div class="view" data-view="objects">
+        <div class="view-header">
+          <div>
+            <h2>nesne tespit ve sahne analizi</h2>
+            <p class="muted">resim, gif veya videodan nesneleri tespit eder, vucut iskelet noktalarini cizer ve ortami yazi ile aciklar.</p>
           </div>
         </div>
 
-        <aside class="sidebar">
-          <div class="stats" id="statsBox"></div>
-          <h3 class="side-title">tespit edilen nesneler</h3>
-          <div class="objects-list" id="objectsList"></div>
-          <h3 class="side-title">sahne etiketleri</h3>
-          <div class="scenes-list" id="scenesList"></div>
-        </aside>
-      </div>
-    </section>
+        <section class="card upload-card" id="uploadCard">
+          <div class="upload-area" id="dropZone">
+            <div class="upload-illustration">
+              <div class="ring r1"></div>
+              <div class="ring r2"></div>
+              <div class="ring r3"></div>
+              <div class="upload-icon">
+                <svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M24 32 V12 M16 20 L24 12 L32 20" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M8 32 V36 A4 4 0 0 0 12 40 H36 A4 4 0 0 0 40 36 V32" stroke-linecap="round"/>
+                </svg>
+              </div>
+            </div>
+            <h2>resim, gif veya video yukle</h2>
+            <p class="muted">tikla, surukle birak veya panodan yapistir</p>
+            <input type="file" id="fileInput" accept="image/*,video/*,.gif" hidden>
+            <div class="action-row">
+              <button class="btn-primary" id="pickBtn"><span>dosya sec</span><span class="btn-shine"></span></button>
+              <button class="btn-analyze" id="analyzeBtn" hidden><span>ANALIZ ET</span></button>
+            </div>
+            <div id="filePreview" class="file-preview" hidden></div>
+            <p class="muted small">desteklenen: jpg, png, webp, gif, mp4, webm, mov &middot; maks 100mb</p>
+          </div>
+          <div class="features">
+            <div class="feat"><div class="feat-ic">o</div><span>nesne tespit (80+ sinif)</span></div>
+            <div class="feat"><div class="feat-ic">s</div><span>sahne siniflandirma</span></div>
+            <div class="feat"><div class="feat-ic">v</div><span>vucut iskelet noktalari</span></div>
+            <div class="feat"><div class="feat-ic">k</div><span>video/gif kare analizi</span></div>
+          </div>
+        </section>
 
-    <footer class="footer">
-      <span>vision-ai &middot; tensorflow.js &middot; coco-ssd + mobilenet + movenet</span>
-    </footer>
-  </main>
+        <section class="card result-card" id="resultCard" hidden>
+          <div class="result-header">
+            <div>
+              <h2>analiz sonuclari</h2>
+              <p class="muted small" id="resultMeta"></p>
+            </div>
+            <button class="btn-ghost" id="newBtn">+ yeni analiz</button>
+          </div>
+          <div class="result-body">
+            <div class="result-main">
+              <div class="canvas-container" id="canvasContainer">
+                <img id="resultImg" class="result-media" alt="">
+                <canvas id="overlay"></canvas>
+                <div class="frame-controls" id="frameControls" hidden>
+                  <button class="ctrl-btn" id="prevFrame" title="onceki kare">‹</button>
+                  <span id="frameLabel" class="frame-label">kare 1/1</span>
+                  <button class="ctrl-btn" id="nextFrame" title="sonraki kare">›</button>
+                  <button class="ctrl-btn play" id="playFrames" title="otomatik oynat">▶</button>
+                </div>
+                <div class="legend">
+                  <span class="legend-item"><span class="lg-box obj"></span>nesne</span>
+                  <span class="legend-item"><span class="lg-box pose"></span>vucut</span>
+                </div>
+              </div>
+              <div class="description-box">
+                <div class="desc-head">
+                  <span class="desc-icon">i</span>
+                  <h3>ortam yazimi</h3>
+                </div>
+                <p id="description"></p>
+              </div>
+            </div>
+            <aside class="result-aside">
+              <div class="stats" id="statsBox"></div>
+              <h3 class="side-title">tespit edilen nesneler</h3>
+              <div class="objects-list" id="objectsList"></div>
+              <h3 class="side-title">sahne etiketleri</h3>
+              <div class="scenes-list" id="scenesList"></div>
+            </aside>
+          </div>
+        </section>
+      </div>
+
+      <!-- nsfw view -->
+      <div class="view" data-view="nsfw" hidden>
+        <div class="view-header">
+          <div>
+            <h2>nsfw icerik tespiti</h2>
+            <p class="muted">resim, gif veya video icerigini 5 kategoride siniflandirir ve genel risk yuzdesini hesaplar. video icin tum karelerdeki en yuksek risk kullanilir.</p>
+          </div>
+        </div>
+
+        <section class="card upload-card" id="uploadCardNsfw">
+          <div class="upload-area" id="dropZoneNsfw">
+            <div class="upload-illustration">
+              <div class="ring r1"></div>
+              <div class="ring r2"></div>
+              <div class="ring r3"></div>
+              <div class="upload-icon" style="color: var(--warn)">
+                <svg viewBox="0 0 48 48" width="48" height="48" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path d="M24 4 L8 10 V22 C8 32 14 40 24 44 C34 40 40 32 40 22 V10 Z" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M18 22 L22 26 L30 18" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
+              </div>
+            </div>
+            <h2>icerik denetimi icin dosya yukle</h2>
+            <p class="muted">resim/gif/video atin, "ANALIZ ET" butonuna basin, sonuc anlik gelir</p>
+            <input type="file" id="fileInputNsfw" accept="image/*,video/*,.gif" hidden>
+            <div class="action-row">
+              <button class="btn-primary" id="pickBtnNsfw"><span>dosya sec</span><span class="btn-shine"></span></button>
+              <button class="btn-analyze" id="analyzeBtnNsfw" hidden><span>ANALIZ ET</span></button>
+            </div>
+            <div id="filePreviewNsfw" class="file-preview" hidden></div>
+            <p class="muted small">tum analiz lokal modellerle yapilir, dosyalar saklanmaz</p>
+          </div>
+          <div class="features">
+            <div class="feat"><div class="feat-ic">5</div><span>5 sinif: drawing/hentai/neutral/porn/sexy</span></div>
+            <div class="feat"><div class="feat-ic">%</div><span>tek genel risk yuzdesi</span></div>
+            <div class="feat"><div class="feat-ic">k</div><span>video/gif kare bazli analiz</span></div>
+            <div class="feat"><div class="feat-ic">b</div><span>otomatik bulanikla goster</span></div>
+          </div>
+        </section>
+
+        <section class="card result-card-nsfw" id="resultCardNsfw" hidden>
+          <div class="result-header">
+            <div>
+              <h2>nsfw analiz raporu</h2>
+              <p class="muted small" id="nsfwMeta"></p>
+            </div>
+            <button class="btn-ghost" id="newBtnNsfw">+ yeni analiz</button>
+          </div>
+
+          <div class="nsfw-body">
+            <div class="nsfw-left">
+              <div class="nsfw-gauge-card">
+                <div class="nsfw-gauge">
+                  <svg viewBox="0 0 220 220" width="220" height="220">
+                    <defs>
+                      <linearGradient id="gaugeGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#34d399"/>
+                        <stop offset="50%" stop-color="#fbbf24"/>
+                        <stop offset="100%" stop-color="#f87171"/>
+                      </linearGradient>
+                      <filter id="gaugeGlow">
+                        <feGaussianBlur stdDeviation="4" result="b"/>
+                        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+                      </filter>
+                    </defs>
+                    <circle cx="110" cy="110" r="92" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="14"/>
+                    <circle id="gaugeArc" cx="110" cy="110" r="92" fill="none"
+                      stroke="url(#gaugeGrad)" stroke-width="14" stroke-linecap="round"
+                      stroke-dasharray="0 578" stroke-dashoffset="0"
+                      transform="rotate(-90 110 110)" filter="url(#gaugeGlow)"/>
+                  </svg>
+                  <div class="gauge-content">
+                    <div class="gauge-num" id="gaugeNum">0%</div>
+                    <div class="gauge-label" id="gaugeLabel">guvenli</div>
+                    <div class="gauge-sub" id="gaugeSub">risk skoru</div>
+                  </div>
+                </div>
+                <div class="verdict-box" id="verdictBox">
+                  <span class="verdict-pill" id="verdictPill">ANALIZ EDILIYOR</span>
+                  <p id="verdictAdvice"></p>
+                </div>
+              </div>
+
+              <div class="nsfw-categories card-mini">
+                <h3>kategori dagilimi (max)</h3>
+                <div id="nsfwCategories" class="cat-list"></div>
+              </div>
+            </div>
+
+            <div class="nsfw-right">
+              <div class="nsfw-preview-card">
+                <h3 class="card-mini-title">en riskli kare</h3>
+                <div class="nsfw-preview" id="nsfwPreview">
+                  <img id="nsfwImg" alt="">
+                  <div class="blur-veil" id="blurVeil" hidden>
+                    <div class="veil-msg">
+                      <div class="veil-icon">!</div>
+                      <p>icerik yuksek riskli olarak isaretlendi</p>
+                      <button class="btn-ghost" id="revealBtn">yine de goster</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div class="nsfw-frames card-mini" id="nsfwFramesCard" hidden>
+                <h3>kare kare risk</h3>
+                <div id="nsfwFrames" class="frames-strip"></div>
+              </div>
+
+              <div class="nsfw-summary card-mini">
+                <h3>karar metni</h3>
+                <p id="nsfwSummary"></p>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+
+      <footer class="footer">
+        <span>vision-ai &middot; tum analizler tfjs ile lokal calisir &middot; dosyalar saklanmaz</span>
+      </footer>
+    </main>
+  </div>
 
   <script src="client.js"></script>
 </body>
