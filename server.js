@@ -61,8 +61,8 @@ function ensureFfprobe() {
 ensureFfprobe();
 
 // modeller startup'ta yuklenir
-const models = { coco: null, mobilenet: null, pose: null, ready: false };
-let tf, cocoSsd, mobilenetLib, poseDetection;
+const models = { coco: null, mobilenet: null, pose: null, nsfw: null, ready: false };
+let tf, cocoSsd, mobilenetLib, poseDetection, nsfwjs;
 
 async function loadModels() {
   console.log('[init] tensorflow-node baslatiliyor...');
@@ -70,6 +70,7 @@ async function loadModels() {
   cocoSsd = require('@tensorflow-models/coco-ssd');
   mobilenetLib = require('@tensorflow-models/mobilenet');
   poseDetection = require('@tensorflow-models/pose-detection');
+  nsfwjs = require('nsfwjs');
 
   console.log('[init] coco-ssd model yukleniyor...');
   models.coco = await cocoSsd.load({ base: 'mobilenet_v2' });
@@ -83,8 +84,16 @@ async function loadModels() {
     { modelType: poseDetection.movenet.modelType.SINGLEPOSE_LIGHTNING }
   );
 
+  console.log('[init] nsfw model yukleniyor...');
+  try {
+    models.nsfw = await nsfwjs.load('MobileNetV2');
+  } catch (e) {
+    console.warn('[init] mobilenetv2 yuklenmedi, default deneniyor:', e.message);
+    models.nsfw = await nsfwjs.load();
+  }
+
   models.ready = true;
-  console.log('[init] tum modeller hazir');
+  console.log('[init] tum modeller hazir (coco-ssd, mobilenet, movenet, nsfwjs)');
 }
 
 // turkce nesne sozlugu
@@ -147,7 +156,16 @@ app.get('/', (req, res) => {
 });
 
 app.get('/api/health', (req, res) => {
-  res.json({ ok: true, ready: models.ready });
+  res.json({
+    ok: true,
+    ready: models.ready,
+    models: {
+      coco: !!models.coco,
+      mobilenet: !!models.mobilenet,
+      pose: !!models.pose,
+      nsfw: !!models.nsfw
+    }
+  });
 });
 
 // videodan/giften kareler cikar
@@ -252,6 +270,121 @@ async function analyzeImage(buffer) {
       try { tensor.dispose(); } catch (e) {}
     }
   }
+}
+
+// nsfw siniflandirma (tek goruntu)
+async function analyzeNsfwImage(buffer) {
+  let tensor;
+  try {
+    tensor = tf.node.decodeImage(buffer, 3, undefined, false);
+    if (tensor.shape.length === 4) {
+      const sq = tensor.squeeze([0]);
+      tensor.dispose();
+      tensor = sq;
+    }
+    const preds = await models.nsfw.classify(tensor);
+    const m = { drawing: 0, hentai: 0, neutral: 0, porn: 0, sexy: 0 };
+    for (const p of preds) {
+      const k = (p.className || '').toLowerCase();
+      if (k in m) m[k] = p.probability;
+    }
+    return m;
+  } finally {
+    if (tensor) {
+      try { tensor.dispose(); } catch (e) {}
+    }
+  }
+}
+
+// kategori sozlugu turkce
+const NSFW_TR = {
+  drawing: 'cizim/illustrasyon',
+  hentai: 'hentai (anime acik)',
+  neutral: 'notr/guvenli',
+  porn: 'pornografik',
+  sexy: 'mustehcen/cekici'
+};
+
+// nsfw karar mantiği
+function buildNsfwSummary(perFrame) {
+  const cats = ['drawing', 'hentai', 'neutral', 'porn', 'sexy'];
+  const max = {}, avg = {};
+  for (const c of cats) {
+    let mx = 0, sm = 0;
+    for (const f of perFrame) {
+      const v = f[c] || 0;
+      if (v > mx) mx = v;
+      sm += v;
+    }
+    max[c] = mx;
+    avg[c] = perFrame.length > 0 ? sm / perFrame.length : 0;
+  }
+
+  const explicit = max.porn + max.hentai;
+  const sexy = max.sexy;
+  const safe = max.neutral + max.drawing;
+
+  let nsfwScore;
+  // 1 - guvenli olasilik (her zaman 0..1 arasi)
+  const safeFrame = Math.max(...perFrame.map(f => (f.neutral || 0) + (f.drawing || 0)));
+  nsfwScore = Math.max(0, Math.min(1, 1 - safeFrame));
+
+  let level, label, color, advice;
+  if (max.porn >= 0.5 || max.hentai >= 0.6) {
+    level = 'high';
+    label = 'ACIK ICERIK / NSFW';
+    color = '#f87171';
+    advice = 'goruntude pornografik veya cok acik icerik yuksek olasilikla mevcut.';
+  } else if (explicit >= 0.4 || sexy >= 0.7) {
+    level = 'medium';
+    label = 'RISKLI ICERIK';
+    color = '#fb923c';
+    advice = 'goruntude mustehcen/risk tasiyan icerik bulunuyor olabilir, dikkatli inceleyin.';
+  } else if (sexy >= 0.35 || explicit >= 0.2) {
+    level = 'low';
+    label = 'HAFIF MUSTEHCEN';
+    color = '#fbbf24';
+    advice = 'goruntu tamamen masum olmayabilir, hafif duzeyde sakincali sinyaller var.';
+  } else {
+    level = 'safe';
+    label = 'GUVENLI ICERIK';
+    color = '#34d399';
+    advice = 'goruntu guvenli olarak siniflandirildi, belirgin nsfw sinyali yok.';
+  }
+
+  // risk yuzdesi (kullanici icin temiz sunum)
+  const riskPercent = Math.round(nsfwScore * 100);
+
+  // en riskli kareyi bul
+  let topFrameIdx = 0, topFrameScore = -1;
+  for (let i = 0; i < perFrame.length; i++) {
+    const f = perFrame[i];
+    const s = (f.porn || 0) + (f.hentai || 0) + (f.sexy || 0) * 0.5;
+    if (s > topFrameScore) { topFrameScore = s; topFrameIdx = i; }
+  }
+
+  // kategori dagilim aciklamasi
+  const sortedMax = cats.map(c => ({ k: c, v: max[c] })).sort((a, b) => b.v - a.v);
+  const top3 = sortedMax.slice(0, 3).map(x => NSFW_TR[x.k] + ' %' + Math.round(x.v * 100));
+
+  return {
+    nsfwScore,
+    riskPercent,
+    level,
+    label,
+    color,
+    advice,
+    explicit: Math.min(1, explicit),
+    sexy,
+    safe: Math.min(1, safe),
+    categoriesMax: max,
+    categoriesAvg: avg,
+    topCategories: top3,
+    topFrameIndex: topFrameIdx,
+    frameCount: perFrame.length,
+    summary: 'risk skoru %' + riskPercent + ' ' + label.toLowerCase() + '. ' + advice +
+      ' bastaki kategoriler: ' + top3.join(', ') + '.'
+  };
 }
 
 // ortam aciklamasi uret
@@ -385,6 +518,83 @@ app.post('/api/analyze', upload.single('media'), async (req, res) => {
     });
   } catch (err) {
     console.error('[analyze] hata:', err);
+    res.status(500).json({ error: err.message || 'analiz hatasi' });
+  } finally {
+    for (const p of cleanups) {
+      try {
+        const st = fs.statSync(p);
+        if (st.isDirectory()) fs.rmSync(p, { recursive: true, force: true });
+        else fs.unlinkSync(p);
+      } catch (e) {}
+    }
+  }
+});
+
+// nsfw analiz endpointi
+app.post('/api/nsfw', upload.single('media'), async (req, res) => {
+  if (!models.ready) {
+    return res.status(503).json({ error: 'modeller henuz yuklenmedi, biraz bekleyin' });
+  }
+  if (!req.file) {
+    return res.status(400).json({ error: 'dosya yuklenmedi' });
+  }
+
+  const filePath = req.file.path;
+  const mime = req.file.mimetype || '';
+  const isVideo = mime.startsWith('video/');
+  const isGif = mime === 'image/gif';
+  const isImage = mime.startsWith('image/') && !isGif;
+
+  const cleanups = [filePath];
+
+  try {
+    let perFrame = [];
+
+    if (isImage) {
+      console.log('[nsfw] resim:', req.file.originalname, mime);
+      const buf = fs.readFileSync(filePath);
+      const m = await analyzeNsfwImage(buf);
+      const dataUrl = 'data:' + mime + ';base64,' + buf.toString('base64');
+      perFrame.push({ frameIndex: 0, frameImage: dataUrl, ...m });
+    } else if (isVideo || isGif) {
+      console.log('[nsfw]', isGif ? 'gif:' : 'video:', req.file.originalname, mime);
+      const { frames, dir } = await extractFrames(filePath, 8);
+      cleanups.push(dir);
+
+      if (frames.length === 0) {
+        return res.status(400).json({ error: 'video/giften kare cikarilamadi' });
+      }
+
+      for (let i = 0; i < frames.length; i++) {
+        const buf = fs.readFileSync(frames[i]);
+        const m = await analyzeNsfwImage(buf);
+        const dataUrl = 'data:image/png;base64,' + buf.toString('base64');
+        perFrame.push({ frameIndex: i, frameImage: dataUrl, ...m });
+      }
+    } else {
+      return res.status(400).json({ error: 'desteklenmeyen format: ' + mime });
+    }
+
+    const summary = buildNsfwSummary(perFrame);
+
+    res.json({
+      mediaType: isImage ? 'image' : (isGif ? 'gif' : 'video'),
+      mime,
+      frames: perFrame.map(f => ({
+        frameIndex: f.frameIndex,
+        frameImage: f.frameImage,
+        scores: {
+          drawing: Number(f.drawing.toFixed(4)),
+          hentai: Number(f.hentai.toFixed(4)),
+          neutral: Number(f.neutral.toFixed(4)),
+          porn: Number(f.porn.toFixed(4)),
+          sexy: Number(f.sexy.toFixed(4))
+        }
+      })),
+      summary
+    });
+  } catch (err) {
+    console.error('[nsfw] hata:', err);
     res.status(500).json({ error: err.message || 'analiz hatasi' });
   } finally {
     for (const p of cleanups) {
